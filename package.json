@@ -1,0 +1,53 @@
+{
+  "name": "simple-local-ai",
+  "displayName": "Simple Local AI",
+  "version": "0.0.1",
+  "categories": [
+    "Other"
+  ],
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "simple-local-ai.complete",
+        "title": "AI: Дописать код"
+      }
+    ],
+    "configuration": {
+      "title": "My Local AI",
+      "properties": {
+        "myLocalAI.endpoint": {
+          "type": "string",
+          "default": "http://127.0.0.1:8081/completion",
+          "description": "URL сервера llama.cpp"
+        },
+        "myLocalAI.debounceMs": {
+          "type": "number",
+          "default": 400,
+          "description": "Задержка перед запросом (мс)"
+        },
+        "myLocalAI.maxTokens": {
+          "type": "number",
+          "default": 64,
+          "description": "Сколько токенов генерировать за раз"
+        },
+        "myLocalAI.temperature": {
+          "type": "number",
+          "default": 0.1,
+          "description": "От 0 - полностью предопределено до 0.999 - совершенно случайно"
+        },
+        "myLocalAI.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Включить/выключить генерацию кода"
+        }
+      }
+    }
+  }
+}
