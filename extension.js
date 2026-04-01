@@ -1,7 +1,72 @@
+'use strict';
+
+/* some notes
+Токены <|fim_prefix|>, <|fim_suffix|> и <|fim_middle|> — это стандарт именно семейства Qwen2.5-Coder.
+
+Другие модели используют свои наборы «магических слов». Если ты завтра решишь попробовать другую модель, промпт придется менять:
+
+Llama 3 / CodeLlama: Используют <PRE>, <SUF>, <MID>.
+
+DeepSeek-Coder: Используют <｜fim begin｜>, <｜fim hole｜>, <｜fim end｜>.
+
+StarCoder: Используют <fim_prefix>, <fim_suffix>, <fim_middle>.
+
+
+<|file_separator|>
+    Это «стена». Она говорит модели: «Всё, что было до этого токена — это другие файлы или системный шум. А вот сейчас начинается чистый лист конкретного файла».
+<|fim_prefix|>
+    Маркер начала «текста до курсора».
+<|fim_suffix|>
+    Маркер начала «текста после курсора».
+<|fim_middle|>
+    Команда «Пли!».
+*/
+
 const vscode = require('vscode');
+const path = require('node:path');
+const fs = require('node:fs');
 
 /** @param {vscode.ExtensionContext} context */
-function activate(context) {
+async function activate(context) {
+
+    /* create local storage directory if not exists
+     */
+    await fs.promises.stat(context.globalStorageUri.fsPath)
+    .catch(
+        err => fs.promises.mkdir(context.globalStorageUri.fsPath, { recursive: true }).then(() => undefined)
+    )
+    .then(stat => {
+        if (stat && !stat.isDirectory) {
+            throw new Error(`${context.globalStorageUri.fsPath} should be directory`);
+        }
+    });
+
+    /* implement request logging
+     */
+    let logStream;
+    function saveLog(message) {
+        if (vscode.workspace.getConfiguration('myLocalAI').get('enabledLogging')) {
+            if (! logStream) {
+                logStream = fs.createWriteStream(
+                    path.join(context.globalStorageUri.fsPath, 'ai_debug.log'),
+                    { flags: 'a' }
+                );
+            }
+            const base = {
+                timestamp: new Date().toISOString(),
+                trace: message.trace || `tx.${Date.now().toString(36)}`
+            }
+            logStream.write(JSON.stringify(
+                Object.assign(base, message), null, '  '
+            ) +'\n');
+            return base.trace;
+        }
+        else if (logStream) {
+            logStream.end();
+            logStream = undefined;
+            return '';
+        }
+    }
 
     // 1. Создаем команду для переключения (Toggle)
     const toggleCommand = 'myLocalAI.toggleEnabled';
@@ -20,6 +85,11 @@ function activate(context) {
         if (e.affectsConfiguration('myLocalAI.enabled')) {
             updateStatusBar(vscode.workspace.getConfiguration('myLocalAI').get('enabled'));
         }
+    }));
+
+    // создаем команду для сохранения в лог принятия completion
+    context.subscriptions.push(vscode.commands.registerCommand('myLocalAI.logAcceptance', (trace) => {
+        saveLog({trace, accepted: true});
     }));
 
     // 2. Настраиваем статус-бар с поддержкой команды
@@ -64,31 +134,35 @@ function activate(context) {
             if (token.isCancellationRequested) return;
 
             const endpoint = config.get('endpoint');
-            const n_predict = config.get('maxTokens');
-            const temperature = config.get('temperature');
-
-            // 1. Собираем контекст: 1000 символов до и 500 после курсора
-            const offset = document.offsetAt(position);
-            const prefix = document.getText().substring(Math.max(0, offset - 1000), offset);
-            const suffix = document.getText().substring(offset, offset + 500);
-
-            // 2. Формируем FIM-запрос для Qwen2.5 (специфичные токены модели)
-            // Формат: <|fim_prefix|>...<|fim_suffix|>...<|fim_middle|>
-            const prompt = `<|fim_prefix|>${prefix}<|fim_suffix|>${suffix}<|fim_middle|>`;
 
             try {
+            
+                // Собираем параметры для подстановки
+                const offset = document.offsetAt(position);
+                const params = {
+                    relativePath:   vscode.workspace.asRelativePath(document.uri),
+                    lang:           document.languageId,
+                    prefix:         document.getText().substring(Math.max(0, offset - config.get('prefix_length')), offset),
+                    suffix:         document.getText().substring(offset, offset + config.get('suffix_length'))
+                };
+
+                // Формируем запрос по шаблону
+                const prompt = config.get('promptTemplate').replace(/\{(.+?)\}/g, (match, key) => {
+                    return params[key] !== undefined ? params[key] : match;
+                });
+
                 // ФАЗА: ЗАПРОС
                 statusBarItem.text = "$(sync~spin) Llama: Thinking...";
+                const reqBody = {
+                    prompt: prompt,
+                    stop: config.get('stop_tokens'),
+                    stream: false,
+                    ...config.get('modelParameters')
+                };
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt: prompt,
-                        n_predict, // Короткие ответы быстрее и точнее
-                        temperature, // Меньше хаоса
-                        stop: ["<|file_separator|>", "<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "\n\n"],
-                        stream: false
-                    })
+                    body: JSON.stringify(reqBody)
                 });
 
                 if (!response.ok) return;
@@ -99,10 +173,20 @@ function activate(context) {
                 statusBarItem.text = "$(check) Llama: Done";
                 // Возвращаем статус в Ready через секунду
                 setTimeout(() => { statusBarItem.text = "$(circuit-board) Llama: Ready"; }, 1000);
+
+                const trace = saveLog({
+                    ...reqBody,
+                    result:    data.content
+                });
                 
                 // 3. Возвращаем результат в редактор
                 const item = new vscode.InlineCompletionItem(data.content);
                 item.range = new vscode.Range(position, position); // Явно говорим: "вставляй сюда"
+                trace && (item.command = {
+                    command: 'myLocalAI.logAcceptance',
+                    title: 'Log Acceptance',
+                    arguments: [trace] // Передаем текст, который был принят
+                });
                 return [item];
             } catch (err) {
                 // ФАЗА: ОШИБКА

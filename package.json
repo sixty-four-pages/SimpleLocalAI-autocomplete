@@ -1,7 +1,8 @@
 {
   "name": "simple-local-ai",
   "displayName": "Simple Local AI",
-  "version": "0.0.1",
+  "version": "0.0.2",
+  "publisher": "sixty-four-pages",
   "categories": [
     "Other"
   ],
@@ -20,32 +21,59 @@
       }
     ],
     "configuration": {
-      "title": "My Local AI",
+      "title": "My Local AI code completion",
       "properties": {
         "myLocalAI.endpoint": {
           "type": "string",
           "default": "http://127.0.0.1:8081/completion",
           "description": "URL сервера llama.cpp"
         },
+        "myLocalAI.promptTemplate": {
+          "type": "string",
+          "editPresentation": "multilineText",
+          "default": "<|file_separator|>// Path: {relativePath}\n// Language: {lang}\n<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>",
+          "description": "Шаблон FIM-запроса. Используйте {prefix}, {suffix}, {relativePath} и {lang} как подстановочные знаки."
+        },
+        "myLocalAI.stop_tokens": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["<|file_separator|>", "<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "\n\n"],
+          "description": "Токены, на которых модель должна остановиться"
+        },
+        "myLocalAI.prefix_length": {
+          "type": "number",
+          "default": 1000,
+          "description": "Длина префикса"
+        },
+        "myLocalAI.suffix_length": {
+          "type": "number",
+          "default": 500,
+          "description": "Длина суффикса"
+        },
         "myLocalAI.debounceMs": {
           "type": "number",
           "default": 400,
           "description": "Задержка перед запросом (мс)"
         },
-        "myLocalAI.maxTokens": {
-          "type": "number",
-          "default": 64,
-          "description": "Сколько токенов генерировать за раз"
-        },
-        "myLocalAI.temperature": {
-          "type": "number",
-          "default": 0.1,
-          "description": "От 0 - полностью предопределено до 0.999 - совершенно случайно"
+        "myLocalAI.modelParameters": {
+          "type": "object",
+          "default": {
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "top_k": 40,
+            "n_predict": 64
+          },
+          "description": "Дополнительные параметры JSON для передачи в llama.cpp (temperature, top_p, top_k и т.д.)"
         },
         "myLocalAI.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Включить/выключить генерацию кода"
+        },
+        "myLocalAI.enabledLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Включить лог запросов. Файл ai_debug.log будет создан в папке %APPDATA%\\VSCodium\\User\\globalStorage\\personal-dev.mylocalai"
         }
       }
     }
