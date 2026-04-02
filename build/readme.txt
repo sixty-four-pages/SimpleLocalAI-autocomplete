@@ -1,1 +1,1 @@
-Build files will be placed here
+Built files will be placed here.

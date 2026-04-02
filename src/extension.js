@@ -26,6 +26,34 @@ const vscode = require('vscode');
 const path = require('node:path');
 const fs = require('node:fs');
 
+/* implement request logging
+ * message - object to write or (false) to close log
+ */
+let logStream;
+function saveLog(message) {
+    if (vscode.workspace.getConfiguration('myLocalAI').get('enabledLogging') && !!message) {
+        if (! logStream) {
+            logStream = fs.createWriteStream(
+                path.join(context.globalStorageUri.fsPath, 'ai_debug.log'),
+                { flags: 'a' }
+            );
+        }
+        const base = {
+            timestamp: new Date().toISOString(),
+            trace: message.trace || `tx.${Date.now().toString(36)}`
+        }
+        logStream.write(JSON.stringify(
+            Object.assign(base, message), null, '  '
+        ) +'\n');
+        return base.trace;
+    }
+    else if (logStream) {
+        logStream.end();
+        logStream = undefined;
+        return '';
+    }
+}
+
 /** @param {vscode.ExtensionContext} context */
 async function activate(context) {
 
@@ -41,84 +69,68 @@ async function activate(context) {
         }
     });
 
-    /* implement request logging
-     */
-    let logStream;
-    function saveLog(message) {
-        if (vscode.workspace.getConfiguration('myLocalAI').get('enabledLogging')) {
-            if (! logStream) {
-                logStream = fs.createWriteStream(
-                    path.join(context.globalStorageUri.fsPath, 'ai_debug.log'),
-                    { flags: 'a' }
-                );
+    const statusBarCtrl = (() => {
+        const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+        statusBarItem.command = 'myLocalAI.toggleEnabled';
+
+        const ctrl = {
+            setOff:     0,
+            setOn:      1,
+            setError:   2,
+            setReady:   3,
+            setReq:     4,
+            setRes:     5,
+            command:    statusBarItem.command,
+            update(status) {
+                switch (status) {
+                    case ctrl.setOff:
+                        statusBarItem.text = "$(circle-slash) Llama: OFF";
+                        statusBarItem.color = new vscode.ThemeColor('descriptionForeground');
+                        statusBarItem.tooltip = "Кликни, чтобы включить ИИ";
+                        break;
+                    case ctrl.setOn:
+                        statusBarItem.text = "$(primitive-dot) Llama: ON";
+                        statusBarItem.color = undefined;
+                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
+                        break;
+                    case ctrl.setReady:
+                        statusBarItem.text = "$(check) Llama: READY";
+                        statusBarItem.color = undefined;
+                        break;
+                    case ctrl.setReq:
+                        statusBarItem.text = "$(sync~spin) Llama: Thinking...";
+                        statusBarItem.color = undefined;
+                        break;
+                    case ctrl.setRes:
+                        statusBarItem.text = "$(check) Llama: Done";
+                        statusBarItem.color = undefined;
+                        break;
+                    case ctrl.setError:
+                        statusBarItem.text = "$(error) Llama: ERROR";
+                        statusBarItem.color = new vscode.ThemeColor('errorForeground');
+                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
+                        break;
+                }
             }
-            const base = {
-                timestamp: new Date().toISOString(),
-                trace: message.trace || `tx.${Date.now().toString(36)}`
+        }
+
+        ctrl.update(vscode.workspace.getConfiguration('myLocalAI').get('enabled') ? 1 : 0);
+        statusBarItem.show();
+        context.subscriptions.push(statusBarItem);
+
+        // Слушаем изменение настроек, чтобы сразу обновить статус-бар
+        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('myLocalAI.enabled')) {
+                ctrl.update(vscode.workspace.getConfiguration('myLocalAI').get('enabled') ? 1 : 0);
             }
-            logStream.write(JSON.stringify(
-                Object.assign(base, message), null, '  '
-            ) +'\n');
-            return base.trace;
-        }
-        else if (logStream) {
-            logStream.end();
-            logStream = undefined;
-            return '';
-        }
-    }
+        }));
 
-    // 1. Создаем команду для переключения (Toggle)
-    const toggleCommand = 'myLocalAI.toggleEnabled';
-    context.subscriptions.push(vscode.commands.registerCommand(toggleCommand, () => {
-        const config = vscode.workspace.getConfiguration('myLocalAI');
-        const currentState = config.get('enabled');
-        // Инвертируем состояние в настройках пользователя
-        config.update('enabled', !currentState, vscode.ConfigurationTarget.Global);
-        
-        const status = !currentState ? "On" : "Off";
-        vscode.window.showInformationMessage(`Local AI: ${status}`);
-    }));
+        return ctrl;
+    })();
 
-    // Слушаем изменение настроек, чтобы сразу обновить статус-бар
-    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('myLocalAI.enabled')) {
-            updateStatusBar(vscode.workspace.getConfiguration('myLocalAI').get('enabled'));
-        }
-    }));
-
-    // создаем команду для сохранения в лог принятия completion
-    context.subscriptions.push(vscode.commands.registerCommand('myLocalAI.logAcceptance', (trace) => {
-        saveLog({trace, accepted: true});
-    }));
-
-    // 2. Настраиваем статус-бар с поддержкой команды
-    const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.command = toggleCommand; // При клике вызовется наша команда
-    statusBarItem.text = "$(circuit-board) Llama: Ready";
-    statusBarItem.tooltip = "Local AI is active and watching your keystrokes";
-    // statusBarItem.text = "$(sparkle) Llama: Ready";
-    // statusBarItem.tooltip = "Локальный ИИ автокомплит активен";
-    updateStatusBar(true);
-    statusBarItem.show();
-    context.subscriptions.push(statusBarItem);
-
-    // Вспомогательная функция для внешнего вида
-    function updateStatusBar(enabled) {
-        if (enabled) {
-            statusBarItem.text = "$(primitive-dot) Llama: ON";
-            statusBarItem.color = undefined;
-            statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
-        } else {
-            statusBarItem.text = "$(circle-slash) Llama: OFF";
-            statusBarItem.color = new vscode.ThemeColor('descriptionForeground');
-            statusBarItem.tooltip = "Кликни, чтобы включить ИИ";
-        }
-    }
-    
-    
-    const provider = {
-        async provideInlineCompletionItems(document, position, context, token) {
+    const provider = {};
+    provider.provideInlineCompletionItems = async function (document, position, context, token) {
+        try {
             // Получаем текущие настройки
             const config = vscode.workspace.getConfiguration('myLocalAI');
 
@@ -135,76 +147,88 @@ async function activate(context) {
 
             const endpoint = config.get('endpoint');
 
-            try {
+            // Собираем параметры для подстановки
+            const offset = document.offsetAt(position);
+            const params = {
+                relativePath:   vscode.workspace.asRelativePath(document.uri),
+                lang:           document.languageId,
+                prefix:         document.getText().substring(Math.max(0, offset - config.get('prefix_length')), offset),
+                suffix:         document.getText().substring(offset, offset + config.get('suffix_length'))
+            };
+
+            // Формируем запрос по шаблону
+            const prompt = config.get('promptTemplate').replace(/\{(.+?)\}/g, (match, key) => {
+                return params[key] !== undefined ? params[key] : match;
+            });
+
+            // ФАЗА: ЗАПРОС
+            statusBarCtrl.update(statusBarCtrl.setReq, "$(sync~spin) Llama: Thinking...");
+            const reqBody = {
+                prompt: prompt,
+                stop: config.get('stop_tokens'),
+                stream: false,
+                ...config.get('modelParameters')
+            };
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(reqBody)
+            });
+
+            if (!response.ok) return;
+
+            const data = await response.json();
+
+            // ФАЗА: УСПЕХ
+            statusBarCtrl.update(statusBarCtrl.setRes, "$(check) Llama: Done");
+            // Возвращаем статус в Ready через секунду
+            // setTimeout(() => { statusBarItem.text = "$(circuit-board) Llama: Ready"; }, 1000);
+
+            const trace = saveLog({
+                ...reqBody,
+                result:    data.content
+            });
             
-                // Собираем параметры для подстановки
-                const offset = document.offsetAt(position);
-                const params = {
-                    relativePath:   vscode.workspace.asRelativePath(document.uri),
-                    lang:           document.languageId,
-                    prefix:         document.getText().substring(Math.max(0, offset - config.get('prefix_length')), offset),
-                    suffix:         document.getText().substring(offset, offset + config.get('suffix_length'))
-                };
-
-                // Формируем запрос по шаблону
-                const prompt = config.get('promptTemplate').replace(/\{(.+?)\}/g, (match, key) => {
-                    return params[key] !== undefined ? params[key] : match;
-                });
-
-                // ФАЗА: ЗАПРОС
-                statusBarItem.text = "$(sync~spin) Llama: Thinking...";
-                const reqBody = {
-                    prompt: prompt,
-                    stop: config.get('stop_tokens'),
-                    stream: false,
-                    ...config.get('modelParameters')
-                };
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(reqBody)
-                });
-
-                if (!response.ok) return;
-
-                const data = await response.json();
-
-                // ФАЗА: УСПЕХ
-                statusBarItem.text = "$(check) Llama: Done";
-                // Возвращаем статус в Ready через секунду
-                setTimeout(() => { statusBarItem.text = "$(circuit-board) Llama: Ready"; }, 1000);
-
-                const trace = saveLog({
-                    ...reqBody,
-                    result:    data.content
-                });
-                
-                // 3. Возвращаем результат в редактор
-                const item = new vscode.InlineCompletionItem(data.content);
-                item.range = new vscode.Range(position, position); // Явно говорим: "вставляй сюда"
-                trace && (item.command = {
-                    command: 'myLocalAI.logAcceptance',
-                    title: 'Log Acceptance',
-                    arguments: [trace] // Передаем текст, который был принят
-                });
-                return [item];
-            } catch (err) {
-                // ФАЗА: ОШИБКА
-                statusBarItem.text = "$(warning) Llama: Offline";
-                statusBarItem.color = new vscode.ThemeColor('errorForeground');
-                console.error('Llama.cpp connection error:', err);
-                return [];
-            }
+            // 3. Возвращаем результат в редактор
+            const item = new vscode.InlineCompletionItem(data.content);
+            item.range = new vscode.Range(position, position); // Явно говорим: "вставляй сюда"
+            trace && (item.command = {
+                command: 'myLocalAI.logAcceptance',
+                title: 'Log Acceptance',
+                arguments: [trace] // Передаем текст, который был принят
+            });
+            return [item];
+        } catch (err) {
+            // ФАЗА: ОШИБКА
+            statusBarCtrl.update(statusBarCtrl.setErr, "$(error) Llama: Error");
+            console.error('Llama.cpp connection error:', err);
+            return [];
         }
-    };
+    }
 
     // Регистрируем провайдер для всех языков программирования
-    const selector = { pattern: '**/*' };
     context.subscriptions.push(
-        vscode.languages.registerInlineCompletionItemProvider(selector, provider)
+        vscode.languages.registerInlineCompletionItemProvider({ pattern: '**/*' }, provider)
     );
+
+    // Создаем команду для переключения (Toggle)
+    context.subscriptions.push(vscode.commands.registerCommand(statusBarCtrl.command, () => {
+        const config = vscode.workspace.getConfiguration('myLocalAI');
+        const isEnabled = config.get('enabled');
+
+        // Инвертируем состояние в настройках пользователя
+        config.update('enabled', !isEnabled, vscode.ConfigurationTarget.Global);
+    }));
+
+    // создаем команду для сохранения в лог принятия completion
+    context.subscriptions.push(vscode.commands.registerCommand('myLocalAI.logAcceptance', (trace) => {
+        saveLog({trace, accepted: true});
+    }));
+
 }
 
-function deactivate() {}
+function deactivate() {
+    saveLog(false);
+}
 
 module.exports = { activate, deactivate };
