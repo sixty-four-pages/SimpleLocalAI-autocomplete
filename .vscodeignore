@@ -1,0 +1,8 @@
+.gitignore
+.vscodeignore
+.vscode/**
+package-lock.json
+*.vsix
+src/**.map
+build/**
+

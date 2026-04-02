@@ -6,6 +6,9 @@
   "categories": [
     "Other"
   ],
+  "scripts": {
+    "build": "vsce package --allow-missing-repository -o build/local-ai-autocomplete.vsix"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -36,8 +39,16 @@
         },
         "myLocalAI.stop_tokens": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["<|file_separator|>", "<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "\n\n"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "<|file_separator|>",
+            "<|fim_prefix|>",
+            "<|fim_suffix|>",
+            "<|fim_middle|>",
+            "\n\n"
+          ],
           "description": "Токены, на которых модель должна остановиться"
         },
         "myLocalAI.prefix_length": {
