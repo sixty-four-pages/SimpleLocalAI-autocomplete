@@ -7,7 +7,7 @@
     "Other"
   ],
   "scripts": {
-    "build": "vsce package --allow-missing-repository"
+    "build": "vsce package --allow-missing-repository -o ./build/"
   },
   "engines": {
     "vscode": "^1.75.0"
