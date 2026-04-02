@@ -59,6 +59,16 @@
 2. Установите полученный `.vsix` в VS Code.
 3. Настройте эндпоинт вашей локальной модели.
 
+для лучшего опыта добавьте в settings.json:
+
+```json
+{
+  "editor.inlineSuggest.enabled": true,
+  "editor.suggest.snippetsPreventQuickSuggestions": false
+}
+```
+
+
 ---
 
 ### Почему это лучше альтернатив?

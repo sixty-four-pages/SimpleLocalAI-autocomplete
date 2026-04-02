@@ -20,6 +20,10 @@ StarCoder: Используют <fim_prefix>, <fim_suffix>, <fim_middle>.
     Маркер начала «текста после курсора».
 <|fim_middle|>
     Команда «Пли!».
+
+
+"description": "Шаблон FIM-запроса. Используйте {prefix}, {suffix}, {relativePath} и {lang} как подстановочные знаки."
+"description": "Токены, на которых модель должна остановиться"
 */
 
 const vscode = require('vscode');
@@ -31,7 +35,7 @@ const fs = require('node:fs');
  */
 let logStream;
 function saveLog(message) {
-    if (vscode.workspace.getConfiguration('myLocalAI').get('enabledLogging') && !!message) {
+    if (vscode.workspace.getConfiguration('simple-local-ai.completion').get('enabledLogging') && !!message) {
         if (! logStream) {
             logStream = fs.createWriteStream(
                 path.join(context.globalStorageUri.fsPath, 'ai_debug.log'),
@@ -71,7 +75,7 @@ async function activate(context) {
 
     const statusBarCtrl = (() => {
         const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-        statusBarItem.command = 'myLocalAI.toggleEnabled';
+        statusBarItem.command = 'simple-local-ai.completion.toggleEnabled';
 
         const ctrl = {
             setOff:     0,
@@ -114,14 +118,14 @@ async function activate(context) {
             }
         }
 
-        ctrl.update(vscode.workspace.getConfiguration('myLocalAI').get('enabled') ? 1 : 0);
+        ctrl.update(vscode.workspace.getConfiguration('simple-local-ai.completion').get('enabled') ? 1 : 0);
         statusBarItem.show();
         context.subscriptions.push(statusBarItem);
 
         // Слушаем изменение настроек, чтобы сразу обновить статус-бар
         context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('myLocalAI.enabled')) {
-                ctrl.update(vscode.workspace.getConfiguration('myLocalAI').get('enabled') ? 1 : 0);
+            if (e.affectsConfiguration('simple-local-ai.completion.enabled')) {
+                ctrl.update(vscode.workspace.getConfiguration('simple-local-ai.completion').get('enabled') ? 1 : 0);
             }
         }));
 
@@ -131,11 +135,17 @@ async function activate(context) {
     const provider = {};
     provider.provideInlineCompletionItems = async function (document, position, context, token) {
         try {
+            // Если пользователь уже выбирает что-то из выпадающего списка (IntelliSense),
+            // лучше не мешать, чтобы не было "каши" на экране.
+            if (context.selectedCompletionInfo) {
+                return [];
+            }
+
             // Получаем текущие настройки
-            const config = vscode.workspace.getConfiguration('myLocalAI');
+            const config = vscode.workspace.getConfiguration('simple-local-ai.completion');
 
             // ПРОВЕРКА РУБИЛЬНИКА
-            if (!config.get('enabled')) return;
+            if (!config.get('enabled')) return[];
 
             // Перед паузой debounce (просто готовность)
             // statusBarItem.text = "$(circuit-board) Llama: Ready";
@@ -143,21 +153,26 @@ async function activate(context) {
 
             // Задержка перед посылкой запроса
             await new Promise(resolve => setTimeout(resolve, config.get('debounceMs'))); 
-            if (token.isCancellationRequested) return;
+            if (token.isCancellationRequested) return[];
 
-            const endpoint = config.get('endpoint');
+            // Ищем выбранный пресет
+            const activePreset = (() => {
+                const selectedName = config.get('selectedPreset');
+                const allPresets = config.get('presets') || [];
+                return (allPresets.find(p => p.name === selectedName)) || allPresets[0];
+            })();
 
             // Собираем параметры для подстановки
             const offset = document.offsetAt(position);
             const params = {
                 relativePath:   vscode.workspace.asRelativePath(document.uri),
                 lang:           document.languageId,
-                prefix:         document.getText().substring(Math.max(0, offset - config.get('prefix_length')), offset),
-                suffix:         document.getText().substring(offset, offset + config.get('suffix_length'))
+                prefix:         document.getText().substring(Math.max(0, offset - activePreset.prefixLength), offset),
+                suffix:         document.getText().substring(offset, offset + activePreset.suffixLength),
             };
 
             // Формируем запрос по шаблону
-            const prompt = config.get('promptTemplate').replace(/\{(.+?)\}/g, (match, key) => {
+            const prompt = activePreset.promptTemplate.replace(/\{(.+?)\}/g, (match, key) => {
                 return params[key] !== undefined ? params[key] : match;
             });
 
@@ -165,17 +180,17 @@ async function activate(context) {
             statusBarCtrl.update(statusBarCtrl.setReq, "$(sync~spin) Llama: Thinking...");
             const reqBody = {
                 prompt: prompt,
-                stop: config.get('stop_tokens'),
+                stop: activePreset.stopTokens,
                 stream: false,
-                ...config.get('modelParameters')
+                ...activePreset.modelParameters
             };
-            const response = await fetch(endpoint, {
+            const response = await fetch(activePreset.endpoint, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...activePreset.requestHeaders},
                 body: JSON.stringify(reqBody)
             });
 
-            if (!response.ok) return;
+            if (!response.ok) return[];
 
             const data = await response.json();
 
@@ -193,7 +208,7 @@ async function activate(context) {
             const item = new vscode.InlineCompletionItem(data.content);
             item.range = new vscode.Range(position, position); // Явно говорим: "вставляй сюда"
             trace && (item.command = {
-                command: 'myLocalAI.logAcceptance',
+                command: 'simple-local-ai.completion.logAcceptance',
                 title: 'Log Acceptance',
                 arguments: [trace] // Передаем текст, который был принят
             });
@@ -213,7 +228,7 @@ async function activate(context) {
 
     // Создаем команду для переключения (Toggle)
     context.subscriptions.push(vscode.commands.registerCommand(statusBarCtrl.command, () => {
-        const config = vscode.workspace.getConfiguration('myLocalAI');
+        const config = vscode.workspace.getConfiguration('simple-local-ai.completion');
         const isEnabled = config.get('enabled');
 
         // Инвертируем состояние в настройках пользователя
@@ -221,10 +236,32 @@ async function activate(context) {
     }));
 
     // создаем команду для сохранения в лог принятия completion
-    context.subscriptions.push(vscode.commands.registerCommand('myLocalAI.logAcceptance', (trace) => {
+    context.subscriptions.push(vscode.commands.registerCommand('simple-local-ai.completion.logAcceptance', (trace) => {
         saveLog({trace, accepted: true});
     }));
 
+    // создаем команду для выбора пресета
+    context.subscriptions.push(vscode.commands.registerCommand('simple-local-ai.completion.selectPreset', async () => {
+        const config = vscode.workspace.getConfiguration('simple-local-ai.completion');
+        const presets = config.get('presets') || [];
+
+        if (presets.length === 0) {
+            vscode.window.showWarningMessage("Список пресетов пуст!");
+            return;
+        }
+
+        // Выводим список имен для выбора
+        const items = presets.map(p => p.name);
+        const selected = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Выберите модель для автокомплита'
+        });
+
+        if (selected) {
+            // Сохраняем выбор в настройки пользователя (Global)
+            await config.update('selectedPreset', selected, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Активная модель: ${selected}`);
+        }
+    }));
 }
 
 function deactivate() {
