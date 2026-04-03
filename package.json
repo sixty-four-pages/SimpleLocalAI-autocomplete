@@ -1,7 +1,7 @@
 {
   "name": "simple-local-ai-completion",
   "displayName": "Simple Local AI: Completion",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "publisher": "sixty-four-pages",
   "categories": [
     "Other"
@@ -38,7 +38,7 @@
         "simple-local-ai.completion.enabledLogging": {
           "type": "boolean",
           "default": false,
-          "description": "Включить лог запросов. Файл ai_debug.log будет создан в папке %APPDATA%\\VSCodium\\User\\globalStorage\\personal-dev.mylocalai"
+          "description": "Включить лог запросов. Файл ai_debug.log будет создан в папке данных расширения"
         },
         "simple-local-ai.completion.selectedPreset": {
           "type": "string",
