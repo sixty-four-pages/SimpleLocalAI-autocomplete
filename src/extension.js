@@ -60,6 +60,8 @@ function saveLog(message) {
 
 /** @param {vscode.ExtensionContext} context */
 async function activate(context) {
+    const ACCEPTANCE_COOLDOWN = 1500;
+    let lastAcceptedTimestamp;
 
     /* create local storage directory if not exists
      */
@@ -139,6 +141,12 @@ async function activate(context) {
             // лучше не мешать, чтобы не было "каши" на экране.
             if (context.selectedCompletionInfo) {
                 return [];
+
+            }
+
+            // после принятия предложения, мы должны "замерзнуть" на некоторое время, чтобы не было "каши" на экране.            
+            if (Date.now() - lastAcceptedTimestamp < ACCEPTANCE_COOLDOWN) {
+                return { items: [] };
             }
 
             // Получаем текущие настройки
@@ -207,15 +215,15 @@ async function activate(context) {
             // 3. Возвращаем результат в редактор
             const item = new vscode.InlineCompletionItem(data.content);
             item.range = new vscode.Range(position, position); // Явно говорим: "вставляй сюда"
-            trace && (item.command = {
-                command: 'simple-local-ai.completion.logAcceptance',
-                title: 'Log Acceptance',
-                arguments: [trace] // Передаем текст, который был принят
-            });
+            item.command = {
+                command: 'simple-local-ai.completion.accepted',
+                title: 'Completion Accepted',
+                arguments: [trace] // Передаем идентификатор запроса, если он был
+            };
             return [item];
         } catch (err) {
             // ФАЗА: ОШИБКА
-            statusBarCtrl.update(statusBarCtrl.setErr, "$(error) Llama: Error");
+            statusBarCtrl.update(statusBarCtrl.setError, "$(error) Llama: Error");
             console.error('Llama.cpp connection error:', err);
             return [];
         }
@@ -236,8 +244,9 @@ async function activate(context) {
     }));
 
     // создаем команду для сохранения в лог принятия completion
-    context.subscriptions.push(vscode.commands.registerCommand('simple-local-ai.completion.logAcceptance', (trace) => {
-        saveLog({trace, accepted: true});
+    context.subscriptions.push(vscode.commands.registerCommand('simple-local-ai.completion.accepted', (trace) => {
+        lastAcceptedTimestamp = Date.now();
+        trace && saveLog({trace, accepted: true});
     }));
 
     // создаем команду для выбора пресета

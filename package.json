@@ -1,7 +1,8 @@
 {
+  "version": "0.1.1",
   "name": "simple-local-ai-completion",
   "displayName": "Simple Local AI: Completion",
-  "version": "0.1.0",
+  "description": "Local LLM-powered inline code completions for VS Code.",
   "publisher": "sixty-four-pages",
   "categories": [
     "Other"
@@ -105,7 +106,7 @@
               "name": "Qwen 2.5 Coder",
               "endpoint": "http://localhost:8081/completion",
               "promptTemplate": "<|file_separator|>// Path: {relativePath}\n// Language: {lang}\n<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>",
-              "stop_tokens": ["<|file_separator|>", "<|endoftext|>", "\n\n"],
+              "stopTokens": ["<|file_separator|>", "<|endoftext|>", "\n\n"],
               "modelParameters": { "temperature": 0.2, "top_p": 0.9, "top_k": 40, "n_predict": 64 },
               "prefixLength": 1000,
               "suffixLength": 500
@@ -114,7 +115,7 @@
               "name": "DeepSeek Coder",
               "endpoint": "http://localhost:11434/api/generate",
               "promptTemplate": "<｜fim begin｜>{prefix}<｜fim hole｜>{suffix}<｜fim end｜>",
-              "stop_tokens": ["<｜fim begin｜>", "<｜fim hole｜>", "<｜fim end｜>", "\n"],
+              "stopTokens": ["<｜fim begin｜>", "<｜fim hole｜>", "<｜fim end｜>", "\n"],
               "modelParameters": { "temperature": 0.1 },
               "prefixLength": 1000,
               "suffixLength": 500
