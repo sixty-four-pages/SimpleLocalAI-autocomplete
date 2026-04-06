@@ -31,96 +31,70 @@
     "configuration": {
       "title": "Simple Local AI: Completion",
       "properties": {
-        "simple-local-ai.completion.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Включить/выключить генерацию кода"
-        },
-        "simple-local-ai.completion.enabledLogging": {
-          "type": "boolean",
-          "default": false,
-          "description": "Включить лог запросов. Файл ai_debug.log будет создан в папке данных расширения"
-        },
-        "simple-local-ai.completion.selectedPreset": {
-          "type": "string",
-          "default": "Qwen 2.5 Coder",
-          "description": "Имя текущего активного пресета (можно менять вручную или через команду)"
-        },
-        "simple-local-ai.completion.debounceMs": {
+        "simple-local-ai.completion.main.debounceMs": {
           "type": "number",
           "default": 400,
           "description": "Задержка перед запросом (мс)"
         },
-        "simple-local-ai.completion.presets": {
-          "type": "array",
-          "description": "Список конфигураций для разных моделей",
-          "items": {
-            "type": "object",
-            "required": ["name", "endpoint", "promptTemplate"],
-            "properties": {
-              "name": {
-                "type": "string",
-                "default": "New Model",
-                "description": "Понятное имя пресета (например, Qwen 2.5)"
-              },
-              "endpoint": {
-                "type": "string",
-                "default": "http://localhost:8080/completion",
-                "description": "URL-адрес API для запросов"
-              },
-              "requestHeaders": {
-                  "type": "object",
-                  "description": "Дополнительные заголовки запроса (например, для авторизации)",
-                  "additionalProperties": { "type": "string" }
-              },
-              "promptTemplate": {
-                "type": "string", 
-                "editPresentation": "multilineText",
-                "description": "Шаблон запроса с переменными {prefix} и {suffix}"
-              },
-              "stopTokens": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Токены остановки генерации"
-              },
-              "modelParameters": {
-                "type": "object",
-                "description": "Дополнительные параметры модели: temperature, top_p, top_k, n_predict..."
-              },
-              "prefixLength": {
-                "type": "number",
-                "default": 1000,
-                "description": "Размер выборки {prefix}"
-              },
-              "suffixLength": {
-                "type": "number", 
-                "default": 500,
-                "description": "Размер выборки {suffix}"
-              }
-            }
-          },
-          "default": [
-            {
-              "name": "Qwen 2.5 Coder",
-              "endpoint": "http://localhost:8081/completion",
-              "promptTemplate": "<|file_separator|>// Path: {relativePath}\n// Language: {lang}\n<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>",
-              "stopTokens": ["<|file_separator|>", "<|endoftext|>", "\n\n"],
-              "modelParameters": { "temperature": 0.2, "top_p": 0.9, "top_k": 40, "n_predict": 64 },
-              "prefixLength": 1000,
-              "suffixLength": 500
-            },
-            {
-              "name": "DeepSeek Coder",
-              "endpoint": "http://localhost:11434/api/generate",
-              "promptTemplate": "<｜fim begin｜>{prefix}<｜fim hole｜>{suffix}<｜fim end｜>",
-              "stopTokens": ["<｜fim begin｜>", "<｜fim hole｜>", "<｜fim end｜>", "\n"],
-              "modelParameters": { "temperature": 0.1 },
-              "prefixLength": 1000,
-              "suffixLength": 500
-            }
-          ]
+        "simple-local-ai.completion.main.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Включить/выключить генерацию кода"
+        },
+        "simple-local-ai.completion.main.enabledLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Включить лог запросов. Файл ai_debug.log будет создан в папке данных расширения"
+        },
+        "simple-local-ai.completion.main.presetSelected": {
+          "type": "string",
+          "default": "Qwen 2.5 Coder",
+          "markdownDescription": "Текущий активный профиль. [Выбрать из списка...](command:simple-local-ai.completion.selectPreset)"
+        },
+        "simple-local-ai.completion.main.presetSyncronize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Автоматически перезагружать пресеты при изменении внешнего файла"
+        },
+
+        "simple-local-ai.completion.model.endpoint": {
+          "type": "string",
+          "default": "http://localhost:8081/completion",
+          "description": "URL-адрес API для запросов"
+        },
+        "simple-local-ai.completion.model.parameters": {
+          "type": "object",
+          "description": "Дополнительные параметры модели: temperature, top_p, top_k, n_predict...",
+          "additionalProperties": { "type": "number" },
+          "default": {
+            "temperature": 0.2,
+            "n_predict": 64,
+            "top_p": 0.9,
+            "top_k": 40
+          }
+        },
+        "simple-local-ai.completion.model.promptTemplate": {
+          "type": "string", 
+          "editPresentation": "multilineText",
+          "description": "Шаблон запроса с переменными {prefix} и {suffix}",
+          "default": "<|file_separator|>// Path: {relativePath}\n// Language: {lang}\n<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
+        },
+        "simple-local-ai.completion.model.requestHeaders": {
+          "type": "object",
+          "description": "Дополнительные HTTP-заголовки для запросов к API",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "simple-local-ai.completion.model.values.prefixLength": {
+            "type": "number",
+            "default": 1000,
+            "description": "Размер выборки текста перед курсором"
+         },
+        "simple-local-ai.completion.model.values.suffixLength": {
+          "type": "number",
+          "default": 500,
+          "description": "Размер выборки текста после курсора"
         }
       }
     }
