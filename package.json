@@ -48,7 +48,7 @@
         },
         "simple-local-ai.completion.presetSelected": {
           "type": "string",
-          "default": "Qwen 2.5 Coder 7B",
+          "default": "Qwen 2.5 Coder 1.5B",
           "markdownDescription": "Текущий активный профиль. [Выбрать из списка...](command:simple-local-ai.completion.selectPreset)"
         },
         "simple-local-ai.completion.presetSource": {
@@ -112,7 +112,7 @@
               "suffixLength": 500
             },
             {
-              "name": "*Qwen 2.5 Coder 1.5B CodeFIM",
+              "name": "Qwen 2.5 Coder 1.5B",
               "endpoint": "http://localhost:8082/completion",
               "promptTemplate": "<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>",
               "stopTokens": ["<|file_sep|>", "<|endoftext|>", "\n\n"],
