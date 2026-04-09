@@ -1,5 +1,5 @@
 {
-  "version": "0.1.1",
+  "version": "0.1.5",
   "name": "simple-local-ai-completion",
   "displayName": "Simple Local AI: Completion",
   "description": "Local LLM-powered inline code completions for VS Code.",
@@ -31,6 +31,11 @@
     "configuration": {
       "title": "Simple Local AI: Completion",
       "properties": {
+        "simple-local-ai.completion.debounceMs": {
+          "type": "number",
+          "default": 400,
+          "description": "Задержка перед запросом (мс)"
+        },
         "simple-local-ai.completion.enabled": {
           "type": "boolean",
           "default": true,
@@ -39,19 +44,14 @@
         "simple-local-ai.completion.enabledLogging": {
           "type": "boolean",
           "default": false,
-          "description": "Включить лог запросов. Файл ai_debug.log будет создан в папке данных расширения"
+          "markdownDescription": "Включить лог запросов. Файл **ai_debug.log** будет создан в папке данных расширения"
         },
-        "simple-local-ai.completion.selectedPreset": {
+        "simple-local-ai.completion.presetSelected": {
           "type": "string",
-          "default": "Qwen 2.5 Coder",
-          "description": "Имя текущего активного пресета (можно менять вручную или через команду)"
+          "default": "Qwen 2.5 Coder 7B",
+          "markdownDescription": "Текущий активный профиль. [Выбрать из списка...](command:simple-local-ai.completion.selectPreset)"
         },
-        "simple-local-ai.completion.debounceMs": {
-          "type": "number",
-          "default": 400,
-          "description": "Задержка перед запросом (мс)"
-        },
-        "simple-local-ai.completion.presets": {
+        "simple-local-ai.completion.presetSource": {
           "type": "array",
           "description": "Список конфигураций для разных моделей",
           "items": {
@@ -65,7 +65,7 @@
               },
               "endpoint": {
                 "type": "string",
-                "default": "http://localhost:8080/completion",
+                "default": "http://localhost:8081/completion",
                 "description": "URL-адрес API для запросов"
               },
               "requestHeaders": {
@@ -103,7 +103,43 @@
           },
           "default": [
             {
-              "name": "Qwen 2.5 Coder",
+              "name": "Qwen 2.5 Coder 0.5B",
+              "endpoint": "http://localhost:8082/completion",
+              "promptTemplate": "<|file_sep|>// Path: {relativePath}\n// Language: {lang}\n<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>",
+              "stopTokens": ["<|file_separator|>", "<|endoftext|>", "\n\n"],
+              "modelParameters": { "temperature": 0.2, "top_p": 0.9, "top_k": 40, "n_predict": 64 },
+              "prefixLength": 1000,
+              "suffixLength": 500
+            },
+            {
+              "name": "*Qwen 2.5 Coder 1.5B CodeFIM",
+              "endpoint": "http://localhost:8082/completion",
+              "promptTemplate": "<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>",
+              "stopTokens": ["<|file_sep|>", "<|endoftext|>", "\n\n"],
+              "modelParameters": { "temperature": 0.1, "top_p": 0.9, "top_k": 40, "n_predict": 64 },
+              "prefixLength": 1000,
+              "suffixLength": 500
+            },
+            {
+              "name": "Star Coder 2 3B",
+              "endpoint": "http://localhost:8082/completion",
+              "promptTemplate": "<fim_prefix>{prefix}<fim_suffix>{suffix}<fim_middle>",
+              "stopTokens": ["<|endoftext|>", "<fim_pad>"],
+              "modelParameters": { "temperature": 0.2, "top_p": 0.9, "top_k": 40, "n_predict": 64 },
+              "prefixLength": 1000,
+              "suffixLength": 500
+            },
+            {
+              "name": "Jet Brains Mellum 4B",
+              "endpoint": "http://localhost:8082/completion",
+              "promptTemplate": "<fim_prefix>{prefix}<fim_suffix>{suffix}<fim_middle>",
+              "stopTokens": ["<|endoftext|>", "<fim_pad>", "<reponame>"],
+              "modelParameters": { "temperature": 0.2, "top_p": 0.9, "top_k": 40, "n_predict": 64 },
+              "prefixLength": 1000,
+              "suffixLength": 500
+            },
+            {
+              "name": "Qwen 2.5 Coder 7B",
               "endpoint": "http://localhost:8081/completion",
               "promptTemplate": "<|file_separator|>// Path: {relativePath}\n// Language: {lang}\n<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>",
               "stopTokens": ["<|file_separator|>", "<|endoftext|>", "\n\n"],

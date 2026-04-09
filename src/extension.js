@@ -33,30 +33,34 @@ const fs = require('node:fs');
 /* implement request logging
  * message - object to write or (false) to close log
  */
-let logStream;
-function saveLog(message) {
-    if (vscode.workspace.getConfiguration('simple-local-ai.completion').get('enabledLogging') && !!message) {
-        if (! logStream) {
-            logStream = fs.createWriteStream(
-                path.join(context.globalStorageUri.fsPath, 'ai_debug.log'),
-                { flags: 'a' }
-            );
+function createLogger(fsPath) {
+    let logStream;
+    return function (message) {
+        if (vscode.workspace.getConfiguration('simple-local-ai.completion').get('enabledLogging') && !!message) {
+            if (! logStream) {
+                logStream = fs.createWriteStream(
+                    path.join(fsPath, 'ai_debug.log'),
+                    { flags: 'a' }
+                );
+            }
+            const base = {
+                timestamp: new Date().toISOString(),
+                trace: message.trace || `tx.${Date.now().toString(36)}`
+            }
+            logStream.write(JSON.stringify(
+                Object.assign(base, message), null, '  '
+            ) +'\n');
+            return base.trace;
         }
-        const base = {
-            timestamp: new Date().toISOString(),
-            trace: message.trace || `tx.${Date.now().toString(36)}`
+        else if (logStream) {
+            logStream.end();
+            logStream = undefined;
+            return '';
         }
-        logStream.write(JSON.stringify(
-            Object.assign(base, message), null, '  '
-        ) +'\n');
-        return base.trace;
-    }
-    else if (logStream) {
-        logStream.end();
-        logStream = undefined;
-        return '';
     }
 }
+
+let saveLog;
 
 /** @param {vscode.ExtensionContext} context */
 async function activate(context) {
@@ -75,6 +79,8 @@ async function activate(context) {
         }
     });
 
+    saveLog = createLogger(context.globalStorageUri.fsPath);
+
     const statusBarCtrl = (() => {
         const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
         statusBarItem.command = 'simple-local-ai.completion.toggleEnabled';
@@ -87,32 +93,36 @@ async function activate(context) {
             setReq:     4,
             setRes:     5,
             command:    statusBarItem.command,
-            update(status) {
+            update(status, tooltip) {
+                const presetName = vscode.workspace.getConfiguration('simple-local-ai.completion').get('presetSelected')
                 switch (status) {
                     case ctrl.setOff:
-                        statusBarItem.text = "$(circle-slash) Llama: OFF";
+                        statusBarItem.text = "$(circle-slash) ai.completion: OFF";
                         statusBarItem.color = new vscode.ThemeColor('descriptionForeground');
                         statusBarItem.tooltip = "Кликни, чтобы включить ИИ";
                         break;
                     case ctrl.setOn:
-                        statusBarItem.text = "$(primitive-dot) Llama: ON";
+                        statusBarItem.text = `$(primitive-dot) ${presetName}`;
                         statusBarItem.color = undefined;
                         statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
                         break;
                     case ctrl.setReady:
-                        statusBarItem.text = "$(check) Llama: READY";
+                        statusBarItem.text = `$(primitive-dot) ${presetName}`;
                         statusBarItem.color = undefined;
+                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
                         break;
                     case ctrl.setReq:
-                        statusBarItem.text = "$(sync~spin) Llama: Thinking...";
+                        statusBarItem.text = "$(sync~spin) Thinking...";
                         statusBarItem.color = undefined;
+                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
                         break;
                     case ctrl.setRes:
-                        statusBarItem.text = "$(check) Llama: Done";
+                        statusBarItem.text = `$(check) ${presetName}`;
                         statusBarItem.color = undefined;
+                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
                         break;
                     case ctrl.setError:
-                        statusBarItem.text = "$(error) Llama: ERROR";
+                        statusBarItem.text = `$(error) ai.completion:ERROR`;
                         statusBarItem.color = new vscode.ThemeColor('errorForeground');
                         statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
                         break;
@@ -165,8 +175,8 @@ async function activate(context) {
 
             // Ищем выбранный пресет
             const activePreset = (() => {
-                const selectedName = config.get('selectedPreset');
-                const allPresets = config.get('presets') || [];
+                const selectedName = config.get('presetSelected');
+                const allPresets = config.get('presetSource') || [];
                 return (allPresets.find(p => p.name === selectedName)) || allPresets[0];
             })();
 
@@ -185,13 +195,14 @@ async function activate(context) {
             });
 
             // ФАЗА: ЗАПРОС
-            statusBarCtrl.update(statusBarCtrl.setReq, "$(sync~spin) Llama: Thinking...");
+            statusBarCtrl.update(statusBarCtrl.setReq);
             const reqBody = {
                 prompt: prompt,
                 stop: activePreset.stopTokens,
                 stream: false,
                 ...activePreset.modelParameters
             };
+            const timestamp = Date.now();
             const response = await fetch(activePreset.endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...activePreset.requestHeaders},
@@ -203,13 +214,14 @@ async function activate(context) {
             const data = await response.json();
 
             // ФАЗА: УСПЕХ
-            statusBarCtrl.update(statusBarCtrl.setRes, "$(check) Llama: Done");
+            statusBarCtrl.update(statusBarCtrl.setRes);
             // Возвращаем статус в Ready через секунду
-            // setTimeout(() => { statusBarItem.text = "$(circuit-board) Llama: Ready"; }, 1000);
+            setTimeout(() => statusBarCtrl.update(statusBarCtrl.setReady), 1000);
 
             const trace = saveLog({
                 ...reqBody,
-                result:    data.content
+                result:    data.content,
+                timeToRequest: (Date.now() - timestamp)
             });
             
             // 3. Возвращаем результат в редактор
@@ -223,7 +235,7 @@ async function activate(context) {
             return [item];
         } catch (err) {
             // ФАЗА: ОШИБКА
-            statusBarCtrl.update(statusBarCtrl.setError, "$(error) Llama: Error");
+            statusBarCtrl.update(statusBarCtrl.setError, `$err.message`);
             console.error('Llama.cpp connection error:', err);
             return [];
         }
@@ -252,7 +264,7 @@ async function activate(context) {
     // создаем команду для выбора пресета
     context.subscriptions.push(vscode.commands.registerCommand('simple-local-ai.completion.selectPreset', async () => {
         const config = vscode.workspace.getConfiguration('simple-local-ai.completion');
-        const presets = config.get('presets') || [];
+        const presets = config.get('presetSource') || [];
 
         if (presets.length === 0) {
             vscode.window.showWarningMessage("Список пресетов пуст!");
@@ -267,7 +279,7 @@ async function activate(context) {
 
         if (selected) {
             // Сохраняем выбор в настройки пользователя (Global)
-            await config.update('selectedPreset', selected, vscode.ConfigurationTarget.Global);
+            await config.update('presetSelected', selected, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(`Активная модель: ${selected}`);
         }
     }));

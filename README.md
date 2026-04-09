@@ -1,4 +1,4 @@
-# Simple Local AI: Autocomplete (v0.1.1)
+# Simple Local AI: Autocomplete (v0.1.3)
 
 Простой и прозрачный мост между вашим VS Code и локальными LLM (llama.cpp, Ollama и др.). 
 
@@ -86,6 +86,8 @@
 
 ### ⚙️ Дополнительная информация
 
+#### Установка и запуск локальных LLM
+
 Предполагается, что вы уже установили и запустили модель, которую будете использовать.\
 Если это не так, предлагаю небольшую инструкцию.
 1. Устанавливаем **llama.cpp**\
@@ -106,5 +108,64 @@ ggml_cuda_init: found 1 CUDA devices:
   Device 0: NVIDIA GeForce RTX 5060 Ti, compute capability 12.0, VMM: yes
 ```
 5. Если все сделано правильно, модель должна быть запущена и доступна по адресу `http://127.0.0.1:8081`
+
+##### Модели, которые показались мне интересными
+
+И шаблоны для работы с которыми есть настройках по-умолчанию.
+
+* **Qwen 2.5 Coder 0.5B** \
+  https://huggingface.co/bartowski/Qwen2.5-Coder-0.5B-GGUF скачивал в Q8_0 \
+  запуск: `llama-server.exe -m ../models/Qwen2.5-Coder-0.5B-Q8_0.gguf -c 4096 --host 127.0.0.1 --port 8082 -t 4` \
+  занимает совсем немного места, и достаточно быстро отвечает даже в CPU режиме
+
+* **Qwen 2.5 Coder 1.5B CodeFIM** \
+  https://huggingface.co/Etherll/Qwen2.5-Coder-1.5B-CodeFIM-Q8_0-GGUF
+  запуск: `llama-server.exe -m ../models/qwen2.5-coder-1.5b-codefim-q8_0.gguf -c 4096 --host 127.0.0.1 --port 8082 -t 4` \
+  https://huggingface.co/Etherll/Qwen2.5-Coder-1.5B-CodeFIM \
+  A small finetune over https://huggingface.co/datasets/Etherll/code-fim-v2 dataset on top of Qwen/Qwen2.5-Coder-1.5B to generate code FIM ( Fill-in-the-Middle )
+
+* **Star Coder 2 3B** \
+  https://huggingface.co/second-state/StarCoder2-3B-GGUF скачивал в Q8_0 \
+  запуск: `llama-server.exe -m ../models/starcoder2-3b-Q8_0.gguf -c 4096 --host 127.0.0.1 --port 8082 -t 4`
+
+* **Refact-1.6B FIM** \
+  https://huggingface.co/oblivious/Refact-1.6B-fim-GGUF
+  TODO
+
+* **Jet Brains Mellum 4B** \
+  https://huggingface.co/JetBrains/Mellum-4b-base-gguf скачивал в Q8_0 \
+  запуск: `llama-server.exe -m ../models/mellum-4b-base.Q8_0.gguf -c 4096 --host 127.0.0.1 --port 8082 -t 4`
+
+#### Классы моделей: base vs SFT vs instruct
+
+Разберем классы моделей с оценкой в контексте автодополнения (**Fill In the Middle**)
+
+##### Base (pretrained)
+
+Модель после предобучения (next-token prediction), без дообучения под инструкции.
+* максимальная «сырая» энтропия — хорошо моделирует распределение текста
+* не следует инструкциям («напиши функцию…» может проигнорировать)
+* лучше всего понимает структуру кода как статистику
+
+Для FIM: лучший кандидат (в теории), но требует правильного prompting (спец-токены, формат)
+
+##### SFT (Supervised Fine-Tuning)
+
+Модель прошла дообучение на парах `prompt → ответ`
+* начинает понимать «сделай X»
+* становится более «детерминированной»
+* теряет часть гибкости **base**
+
+Для FIM: компромисс, иногда ломает «чистое» распределение текста, но может лучше понимать intent редактирования
+
+##### Instruct (instruction-tuned + RLHF/DPO)
+
+SFT + выравнивание (RLHF / DPO / preference tuning)
+* следует инструкциям
+* «разговорная»
+* часто добавляет лишний текст («Sure, here is the code…»)
+
+Для FIM часто хуже потому что:  модель пытается «помочь», а не «продолжить», может игнорировать suffix, вставляет комментарии/объяснения
+
 
 ---

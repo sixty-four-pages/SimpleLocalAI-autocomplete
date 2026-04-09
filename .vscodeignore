@@ -5,4 +5,4 @@ package-lock.json
 *.vsix
 src/**.map
 build/**
-
+notes/**
