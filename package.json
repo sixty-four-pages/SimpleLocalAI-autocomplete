@@ -1,5 +1,5 @@
 {
-  "version": "0.1.5",
+  "version": "0.2.0",
   "name": "simple-local-ai-completion",
   "displayName": "Simple Local AI: Completion",
   "description": "Local LLM-powered inline code completions for VS Code.",

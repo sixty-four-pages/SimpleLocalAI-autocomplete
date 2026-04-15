@@ -27,239 +27,66 @@ StarCoder: Используют <fim_prefix>, <fim_suffix>, <fim_middle>.
 */
 
 const vscode = require('vscode');
-const path = require('node:path');
-const fs = require('node:fs');
+const tools = require('./tools.js');
 
-/* implement request logging
- * message - object to write or (false) to close log
- */
-function createLogger(fsPath) {
-    let logStream;
-    return function (message) {
-        if (vscode.workspace.getConfiguration('simple-local-ai.completion').get('enabledLogging') && !!message) {
-            if (! logStream) {
-                logStream = fs.createWriteStream(
-                    path.join(fsPath, 'ai_debug.log'),
-                    { flags: 'a' }
-                );
-            }
-            const base = {
-                timestamp: new Date().toISOString(),
-                trace: message.trace || `tx.${Date.now().toString(36)}`
-            }
-            logStream.write(JSON.stringify(
-                Object.assign(base, message), null, '  '
-            ) +'\n');
-            return base.trace;
-        }
-        else if (logStream) {
-            logStream.end();
-            logStream = undefined;
-            return '';
-        }
-    }
+const root = {
+    logger: null
 }
 
-let saveLog;
+
 
 /** @param {vscode.ExtensionContext} context */
 async function activate(context) {
-    const ACCEPTANCE_COOLDOWN = 1500;
-    let lastAcceptedTimestamp;
 
-    /* create local storage directory if not exists
-     */
-    await fs.promises.stat(context.globalStorageUri.fsPath)
-    .catch(
-        err => fs.promises.mkdir(context.globalStorageUri.fsPath, { recursive: true }).then(() => undefined)
-    )
-    .then(stat => {
-        if (stat && !stat.isDirectory) {
-            throw new Error(`${context.globalStorageUri.fsPath} should be directory`);
-        }
-    });
+    const getConfiguration = () => vscode.workspace.getConfiguration('simple-local-ai.completion');
 
-    saveLog = createLogger(context.globalStorageUri.fsPath);
+    await tools.createWorkFolder(context);
 
-    const statusBarCtrl = (() => {
-        const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-        statusBarItem.command = 'simple-local-ai.completion.toggleEnabled';
+    root.logger = tools.initLogger(context.globalStorageUri.fsPath);
 
-        const ctrl = {
-            setOff:     0,
-            setOn:      1,
-            setError:   2,
-            setReady:   3,
-            setReq:     4,
-            setRes:     5,
-            command:    statusBarItem.command,
-            update(status, tooltip) {
-                const presetName = vscode.workspace.getConfiguration('simple-local-ai.completion').get('presetSelected')
-                switch (status) {
-                    case ctrl.setOff:
-                        statusBarItem.text = "$(circle-slash) ai.completion: OFF";
-                        statusBarItem.color = new vscode.ThemeColor('descriptionForeground');
-                        statusBarItem.tooltip = "Кликни, чтобы включить ИИ";
-                        break;
-                    case ctrl.setOn:
-                        statusBarItem.text = `$(primitive-dot) ${presetName}`;
-                        statusBarItem.color = undefined;
-                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
-                        break;
-                    case ctrl.setReady:
-                        statusBarItem.text = `$(primitive-dot) ${presetName}`;
-                        statusBarItem.color = undefined;
-                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
-                        break;
-                    case ctrl.setReq:
-                        statusBarItem.text = "$(sync~spin) Thinking...";
-                        statusBarItem.color = undefined;
-                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
-                        break;
-                    case ctrl.setRes:
-                        statusBarItem.text = `$(check) ${presetName}`;
-                        statusBarItem.color = undefined;
-                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
-                        break;
-                    case ctrl.setError:
-                        statusBarItem.text = `$(error) ai.completion:ERROR`;
-                        statusBarItem.color = new vscode.ThemeColor('errorForeground');
-                        statusBarItem.tooltip = "Кликни, чтобы выключить ИИ";
-                        break;
-                }
+    const statusBarCtrl = tools.initStatusBarCtrl();
+    statusBarCtrl.showStatus(getConfiguration());
+    // Создаем команду для переключения (Toggle)
+    statusBarCtrl.getItem().command = 'simple-local-ai.completion.toggleEnabled';
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'simple-local-ai.completion.toggleEnabled',
+            () => {
+                // Инвертируем состояние в настройках пользователя
+                const config = getConfiguration();
+                config.update('enabled', !config.get('enabled'), vscode.ConfigurationTarget.Global);
             }
-        }
-
-        ctrl.update(vscode.workspace.getConfiguration('simple-local-ai.completion').get('enabled') ? 1 : 0);
-        statusBarItem.show();
-        context.subscriptions.push(statusBarItem);
-
-        // Слушаем изменение настроек, чтобы сразу обновить статус-бар
-        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+        )
+    );
+    // Слушаем изменение настроек, чтобы сразу обновить статус-бар
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('simple-local-ai.completion.enabled')) {
-                ctrl.update(vscode.workspace.getConfiguration('simple-local-ai.completion').get('enabled') ? 1 : 0);
+                statusBarCtrl.showStatus(getConfiguration());
             }
-        }));
-
-        return ctrl;
-    })();
-
-    const provider = {};
-    provider.provideInlineCompletionItems = async function (document, position, context, token) {
-        try {
-            // Если пользователь уже выбирает что-то из выпадающего списка (IntelliSense),
-            // лучше не мешать, чтобы не было "каши" на экране.
-            if (context.selectedCompletionInfo) {
-                return [];
-
+            if (e.affectsConfiguration('simple-local-ai.completion.enabledLogging')) {
+                getConfiguration().get('enabledLogging')
+                    ? root.logger.enable()
+                    : root.logger.disable();
             }
+        })
+    );
 
-            // после принятия предложения, мы должны "замерзнуть" на некоторое время, чтобы не было "каши" на экране.            
-            if (Date.now() - lastAcceptedTimestamp < ACCEPTANCE_COOLDOWN) {
-                return { items: [] };
-            }
-
-            // Получаем текущие настройки
-            const config = vscode.workspace.getConfiguration('simple-local-ai.completion');
-
-            // ПРОВЕРКА РУБИЛЬНИКА
-            if (!config.get('enabled')) return[];
-
-            // Перед паузой debounce (просто готовность)
-            // statusBarItem.text = "$(circuit-board) Llama: Ready";
-            // statusBarItem.color = undefined;
-
-            // Задержка перед посылкой запроса
-            await new Promise(resolve => setTimeout(resolve, config.get('debounceMs'))); 
-            if (token.isCancellationRequested) return[];
-
-            // Ищем выбранный пресет
-            const activePreset = (() => {
-                const selectedName = config.get('presetSelected');
-                const allPresets = config.get('presetSource') || [];
-                return (allPresets.find(p => p.name === selectedName)) || allPresets[0];
-            })();
-
-            // Собираем параметры для подстановки
-            const offset = document.offsetAt(position);
-            const params = {
-                relativePath:   vscode.workspace.asRelativePath(document.uri),
-                lang:           document.languageId,
-                prefix:         document.getText().substring(Math.max(0, offset - activePreset.prefixLength), offset),
-                suffix:         document.getText().substring(offset, offset + activePreset.suffixLength),
-            };
-
-            // Формируем запрос по шаблону
-            const prompt = activePreset.promptTemplate.replace(/\{(.+?)\}/g, (match, key) => {
-                return params[key] !== undefined ? params[key] : match;
-            });
-
-            // ФАЗА: ЗАПРОС
-            statusBarCtrl.update(statusBarCtrl.setReq);
-            const reqBody = {
-                prompt: prompt,
-                stop: activePreset.stopTokens,
-                stream: false,
-                ...activePreset.modelParameters
-            };
-            const timestamp = Date.now();
-            const response = await fetch(activePreset.endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...activePreset.requestHeaders},
-                body: JSON.stringify(reqBody)
-            });
-
-            if (!response.ok) return[];
-
-            const data = await response.json();
-
-            // ФАЗА: УСПЕХ
-            statusBarCtrl.update(statusBarCtrl.setRes);
-            // Возвращаем статус в Ready через секунду
-            setTimeout(() => statusBarCtrl.update(statusBarCtrl.setReady), 1000);
-
-            const trace = saveLog({
-                ...reqBody,
-                result:    data.content,
-                timeToRequest: (Date.now() - timestamp)
-            });
-            
-            // 3. Возвращаем результат в редактор
-            const item = new vscode.InlineCompletionItem(data.content);
-            item.range = new vscode.Range(position, position); // Явно говорим: "вставляй сюда"
-            item.command = {
-                command: 'simple-local-ai.completion.accepted',
-                title: 'Completion Accepted',
-                arguments: [trace] // Передаем идентификатор запроса, если он был
-            };
-            return [item];
-        } catch (err) {
-            // ФАЗА: ОШИБКА
-            statusBarCtrl.update(statusBarCtrl.setError, `$err.message`);
-            console.error('Llama.cpp connection error:', err);
-            return [];
-        }
-    }
+    const [provider, acceptanceHandler] = tools.createProvider(getConfiguration, statusBarCtrl, root.logger.log);
 
     // Регистрируем провайдер для всех языков программирования
     context.subscriptions.push(
-        vscode.languages.registerInlineCompletionItemProvider({ pattern: '**/*' }, provider)
+        vscode.languages.registerInlineCompletionItemProvider(
+            { pattern: '**/*' },
+            provider
+        )
     );
 
-    // Создаем команду для переключения (Toggle)
-    context.subscriptions.push(vscode.commands.registerCommand(statusBarCtrl.command, () => {
-        const config = vscode.workspace.getConfiguration('simple-local-ai.completion');
-        const isEnabled = config.get('enabled');
-
-        // Инвертируем состояние в настройках пользователя
-        config.update('enabled', !isEnabled, vscode.ConfigurationTarget.Global);
-    }));
-
     // создаем команду для сохранения в лог принятия completion
-    context.subscriptions.push(vscode.commands.registerCommand('simple-local-ai.completion.accepted', (trace) => {
-        lastAcceptedTimestamp = Date.now();
-        trace && saveLog({trace, accepted: true});
-    }));
+    context.subscriptions.push(vscode.commands.registerCommand(
+        'simple-local-ai.completion.accepted',
+        acceptanceHandler
+    ));
 
     // создаем команду для выбора пресета
     context.subscriptions.push(vscode.commands.registerCommand('simple-local-ai.completion.selectPreset', async () => {
@@ -286,7 +113,7 @@ async function activate(context) {
 }
 
 function deactivate() {
-    saveLog(false);
+    root.logger.disable();
 }
 
 module.exports = { activate, deactivate };
