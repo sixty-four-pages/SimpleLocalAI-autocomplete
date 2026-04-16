@@ -9,7 +9,6 @@
 
 const fs = require('node:fs');
 const path = require('path');
-const { config } = require('node:process');
 const vscode = require('vscode');
 
 /**
