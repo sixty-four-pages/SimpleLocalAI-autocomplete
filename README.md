@@ -1,4 +1,4 @@
-# Simple Local AI: Autocomplete (v0.2.0)
+# Simple Local AI: Autocomplete (v0.2.1)
 
 Простой и прозрачный мост между вашим VS Code и локальными LLM (llama.cpp, Ollama и др.). 
 

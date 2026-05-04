@@ -131,6 +131,10 @@ function buildPrompt(activePreset, document, position) {
         prefix: currentLine.substring(0, position.character),
         suffix: currentLine.substring(position.character),
     }
+    const info = {
+        prefixLen: 0,
+        suffixLen: 0,
+    }
     
     /**
      * Проверка лимита
@@ -148,6 +152,7 @@ function buildPrompt(activePreset, document, position) {
         }
         
         params.prefix = lineText + params.prefix;
+        info.prefixLen ++;
     }
 
     for (let sLine = position.line + 1; sLine < document.lineCount; sLine++) {
@@ -158,8 +163,9 @@ function buildPrompt(activePreset, document, position) {
         }
         
         params.suffix = params.suffix + lineText;
+        info.suffixLen ++;
     }
-
+    
     // Формируем запрос по шаблону
     const prompt = activePreset.promptTemplate.replace(/\{(.+?)\}/g, (match, key) => {
         return params[key] !== undefined ? params[key] : match;
@@ -168,7 +174,7 @@ function buildPrompt(activePreset, document, position) {
     // console.log('prefix: ', params.prefix);
     // console.log('suffix: ', params.suffix);
     
-    return prompt;
+    return {prompt, info};
 }
 
 exports.createProvider = function (getConfiguration, statusBarCtrl, saveLog) {
@@ -215,7 +221,7 @@ exports.createProvider = function (getConfiguration, statusBarCtrl, saveLog) {
             statusBarCtrl.showThinking(config);
             if (!activePreset) throw new Error('No active preset selected');
 
-            const prompt = buildPrompt(activePreset, document, position);
+            const {prompt, info} = buildPrompt(activePreset, document, position);
             
             const reqBody = {
                 prompt: prompt,
@@ -237,7 +243,7 @@ exports.createProvider = function (getConfiguration, statusBarCtrl, saveLog) {
             // console.log('data:', JSON.stringify(data, null, '  '), '-----');
 
             // ФАЗА: УСПЕХ
-            statusBarCtrl.showSuccess(`$(arrow-small-right) ${data.tokens_evaluated}+${data.tokens_predicted}`);
+            statusBarCtrl.showSuccess(` ${info.prefixLen}_${info.suffixLen} $(arrow-small-right) ${data.tokens_evaluated}+${data.tokens_predicted}`);
             // Возвращаем статус в Ready через секунду
             // setTimeout(() => statusBarCtrl.update(statusBarCtrl.setReady), 1000);
 
